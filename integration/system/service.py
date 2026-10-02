@@ -20,21 +20,25 @@ import subprocess
 import sys
 import tempfile
 
-VERSION = '0.20.0'
-PREVIOUS_VERSION = '0.19.0'
+VERSION = '0.21.0'
+PREVIOUS_VERSION = '0.20.0'
 PREFIX = Path('/usr/local/lib/tudor-native') / VERSION
 PREVIOUS_PREFIX = PREFIX.parent / PREVIOUS_VERSION
 DROPIN = Path('/etc/systemd/system/fprintd.service.d/90-tudor-native.conf')
 STATE = Path('/var/lib/tudor-native-service')
 JOURNAL = STATE / ('activation-' + VERSION + '.json')
-PREVIOUS_JOURNAL = STATE / 'activation.json'
+PREVIOUS_JOURNAL = STATE / 'activation-0.20.0.json'
+OLDER_JOURNALS = {'0.20.0': PREVIOUS_JOURNAL, '0.19.0': STATE / 'activation.json'}
 STORE = Path('/var/lib/tudor-native-fprintd-lab-v1')
 PAIRING = Path('/var/lib/tudor-native-pairing-v1')
 AUTHORITY_HASH = '45d9be106f46857f50443d5cb30ca82173b12534f6bec28e854d383fccf6ec4e'
 PAYLOAD_NAMES = {'libfprint-2.so.2', 'service.py', 'LICENSE', 'COPYING.libfprint',
                  'libfprint-source.tar.gz', 'project-source.tar.gz'}
 # Recognize only the released previous controller, including its rollback format.
-PREVIOUS_CONTROLLER_HASH = '59003a4e6cdaf6b7f6f851d60438019e845354597dcd8d51dd9886568b6aaa1a'
+OLDER_CONTROLLER_HASHES = {
+    '0.20.0': 'b3152148cf27a78f012eeffc2436828fe2f2df3ab63acde50b6c5f19f479ab0c',
+    '0.19.0': '59003a4e6cdaf6b7f6f851d60438019e845354597dcd8d51dd9886568b6aaa1a',
+}
 
 
 def dropin_text(version):
@@ -151,8 +155,8 @@ class Controller:
                 raise RuntimeError('Invalid manifest path')
             if digest(self.regular(prefix / name)) != expected:
                 raise RuntimeError('Installed file checksum mismatch: ' + name)
-        if (version == PREVIOUS_VERSION and
-                manifest['files']['service.py'] != PREVIOUS_CONTROLLER_HASH):
+        if (version in OLDER_CONTROLLER_HASHES and
+                manifest['files']['service.py'] != OLDER_CONTROLLER_HASHES[version]):
             raise RuntimeError('Unknown previous service controller')
         return manifest
 
@@ -231,21 +235,41 @@ class Controller:
     def managed_version(self):
         if self.path(DROPIN).exists() or self.path(DROPIN).is_symlink():
             data = self.regular(DROPIN)
-            for version in (VERSION, PREVIOUS_VERSION):
+            for version in (VERSION, *OLDER_JOURNALS):
                 if data == dropin_text(version).encode():
                     return version
             raise RuntimeError('Refusing to modify an unknown or edited fprintd drop-in')
         return None
 
-    def previous_activation(self):
-        """Validate the prior controller and preserve its journal byte for byte."""
-        self.installed(PREVIOUS_VERSION)
-        data = self.regular(PREVIOUS_JOURNAL, private=True)
+    def older_journal_present(self, versions=OLDER_JOURNALS):
+        return any(self.path(OLDER_JOURNALS[v]).exists() or
+                   self.path(OLDER_JOURNALS[v]).is_symlink() for v in versions)
+
+    def validate_previous(self, previous, allowed):
+        if (not isinstance(previous, dict) or
+                set(previous) != {'version', 'dropin', 'activation_record'} or
+                previous['version'] not in allowed or
+                previous['dropin'] != dropin_text(previous['version']) or
+                previous['activation_record'] != self.previous_activation(previous['version'])):
+            raise RuntimeError('Previous activation changed; refusing to overwrite it')
+
+    def previous_activation(self, version=PREVIOUS_VERSION):
+        """Validate the complete older rollback chain without changing its journals."""
+        self.installed(version)
+        data = self.regular(OLDER_JOURNALS[version], private=True)
         record = json.loads(data)
-        if (not isinstance(record, dict) or set(record) != {'version', 'was_active'} or
-                record.get('version') != PREVIOUS_VERSION or
+        keys = {'version', 'was_active'}
+        if version == '0.20.0':
+            keys.add('previous')
+        if (not isinstance(record, dict) or set(record) != keys or
+                record.get('version') != version or
                 type(record.get('was_active')) is not bool):
             raise RuntimeError('Invalid previous activation record')
+        if version == '0.20.0':
+            if record['previous'] is not None:
+                self.validate_previous(record['previous'], ('0.19.0',))
+            elif self.older_journal_present(('0.19.0',)):
+                raise RuntimeError('Unexpected previous activation record')
         return data.decode('utf-8')
 
     def activation_record(self):
@@ -256,13 +280,11 @@ class Controller:
             raise RuntimeError('Invalid activation record')
         previous = record['previous']
         if previous is not None:
-            if (not isinstance(previous, dict) or
-                    set(previous) != {'version', 'dropin', 'activation_record'} or
-                    previous['version'] != PREVIOUS_VERSION or
-                    previous['dropin'] != PREVIOUS_DROPIN_TEXT or
-                    previous['activation_record'] != self.previous_activation()):
-                raise RuntimeError('Previous activation changed; refusing to overwrite it')
-        elif self.path(PREVIOUS_JOURNAL).exists() or self.path(PREVIOUS_JOURNAL).is_symlink():
+            try:
+                self.validate_previous(previous, OLDER_JOURNALS)
+            except (RuntimeError, ValueError, OSError) as error:
+                raise RuntimeError('Previous activation changed; refusing to overwrite it') from error
+        elif self.older_journal_present():
             raise RuntimeError('Unexpected previous activation record')
         return record
 
@@ -280,12 +302,14 @@ class Controller:
         if managed == VERSION:
             raise RuntimeError('Already activated; use status or rollback')
         previous = None
-        if managed == PREVIOUS_VERSION:
-            previous = {'version': PREVIOUS_VERSION, 'dropin': PREVIOUS_DROPIN_TEXT,
-                        'activation_record': self.previous_activation()}
-        elif self.path(PREVIOUS_JOURNAL).exists() or self.path(PREVIOUS_JOURNAL).is_symlink():
-            raise RuntimeError('Interrupted activation detected for ' + PREVIOUS_VERSION +
-                               '; run ' + str(PREVIOUS_PREFIX / 'service.py') + ' rollback first')
+        if managed in OLDER_JOURNALS:
+            # An unrelated newer journal indicates an interrupted upgrade.
+            if managed == '0.19.0' and self.older_journal_present(('0.20.0',)):
+                raise RuntimeError('Interrupted activation detected for 0.20.0; run its rollback first')
+            previous = {'version': managed, 'dropin': dropin_text(managed),
+                        'activation_record': self.previous_activation(managed)}
+        elif self.older_journal_present():
+            raise RuntimeError('Interrupted activation detected; run the older controller rollback first')
         was_active = self.systemctl('is-active', check=False).returncode == 0
         record = json.dumps({'version': VERSION, 'was_active': was_active,
                              'previous': previous}).encode()
@@ -315,7 +339,7 @@ class Controller:
             return
         record = self.activation_record()
         previous = record['previous']
-        if previous is None and managed == PREVIOUS_VERSION:
+        if previous is None and managed in OLDER_JOURNALS:
             raise RuntimeError('Unexpected previous drop-in; refusing to modify it')
         self.systemctl('stop')
         if previous is not None:
@@ -329,7 +353,7 @@ class Controller:
             self.systemctl('is-active')
         journal.unlink()
         self.sync_directory(journal.parent)
-        restored = PREVIOUS_VERSION if previous else 'Distribution'
+        restored = previous['version'] if previous else 'Distribution'
         print(restored + ' fprintd configuration restored. Pairing and templates retained.')
 
     def launch(self):
@@ -344,6 +368,7 @@ class Controller:
         env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'STATE_DIRECTORY': str(STORE),
                'LD_LIBRARY_PATH': str(PREFIX), 'FP_DRIVERS_ALLOWLIST': 'tudor_native_lab',
                'TUDOR_NATIVE_EXPERIMENTAL': '1', 'TUDOR_NATIVE_MATCHING_EXPERIMENTAL': '1',
+               'TUDOR_NATIVE_SETTLE_MS': '500',
                'TUDOR_NATIVE_AUTOMATIC_CONTACT': '1', 'TUDOR_NATIVE_PAIRING_DIR': str(PAIRING),
                'TUDOR_NATIVE_AUTHORITY_FILE': str(STATE / 'sensor-authority.tsk')}
         os.execve(daemon, [daemon], env)

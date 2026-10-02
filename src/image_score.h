@@ -22,4 +22,14 @@ int tudor_image_compare(const uint8_t *first, const uint8_t *second,
  * maximum score. Stops at the first successful fine-search candidate and wipes
  * all temporaries. This checks scorer usability only, not biometric quality. */
 int tudor_image_self_check(const uint8_t *image);
+/* Per-operation probe preprocessing, shared read-only by comparison workers.
+ * create returns NULL for NULL input/allocation failure. free wipes all samples.
+ * compare_prepared has the same scores/status as compare(reference,probe,...).
+ * Join every reader before freeing; neither input buffer is retained. */
+struct tudor_prepared_probe;
+struct tudor_prepared_probe *tudor_image_prepare_probe(const uint8_t *probe);
+void tudor_image_prepared_free(struct tudor_prepared_probe *probe);
+int tudor_image_compare_prepared(const uint8_t *reference,
+                                const struct tudor_prepared_probe *probe,
+                                struct tudor_image_score *output);
 #endif

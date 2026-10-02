@@ -1,6 +1,6 @@
 # Install the native ThinkPad fingerprint driver
 
-This guide installs **tudor-native 0.20** for the Synaptics **06cb:00be** sensor.
+This guide installs **tudor-native 0.21** for the Synaptics **06cb:00be** sensor.
 It connects the sensor to **libfprint → fprintd → your fingerprint settings app**.
 You can enroll, verify and manage fingerprints using normal Linux tools.
 
@@ -11,8 +11,8 @@ experimental: successful scans do not establish production authentication accura
 
 | Your situation | Start here |
 | --- | --- |
-| Version 0.20 already works on your computer | [Everyday use](#everyday-use). Nothing to reinstall. |
-| You have the working 0.19 driver and the prepared 0.20 bundle | [Upgrade from 0.19](#upgrade-from-019). Keep your enrollment. |
+| Version 0.21 already works on your computer | [Everyday use](#everyday-use). Nothing to reinstall. |
+| You have the working 0.19 or 0.20 driver | [Upgrade](#upgrade). Keep your enrollment. |
 | This computer has never used this native driver | [Fresh installation](#fresh-installation). |
 | You use a different Linux distribution | Read [Other distributions](#other-distributions) first. |
 
@@ -20,19 +20,27 @@ experimental: successful scans do not establish production authentication accura
 Run each block separately and continue only when it succeeds. Do not paste the
 terminal prompt (`alex@...$`) along with a command.
 
-## Upgrade from 0.19
+## Upgrade
 
 Close Fingwit/Fingerprints and finish any fingerprint scan. Open your existing
-project folder; on the development computer it is:
+project folder. If you use the Git checkout, update and rebuild first:
 
 ```sh
-cd "$HOME/Documents/thinkpad_l14g1"
+cd /path/to/synaptics-tudor-native
+git pull --ff-only
+python3 scripts/build-libfprint-lab.py build/libfprint-v1.94.7 --matching
+python3 scripts/build-service-bundle.py
+```
+
+For an already prepared 0.21 bundle, start here:
+
+```sh
 sudo sh scripts/install-fprintd-experimental.sh --activate
 ```
 
-This requires the prepared `dist/tudor-native-service-0.20.0` bundle. It keeps
-your pairing and enrolled fingers, and retains 0.19 for rollback. Do not repeat
-pairing or enrollment. If the installer reports that 0.20 is already activated,
+This requires the prepared `dist/tudor-native-service-0.21.0` bundle. It keeps
+your pairing and enrolled fingers, and retains the previous version for rollback. Do not repeat
+pairing or enrollment. If the installer reports that 0.21 is already activated,
 use its status command below; do not reinstall just to clear that message.
 
 ```sh
@@ -60,7 +68,7 @@ cd "$HOME/Documents/synaptics-tudor-native"
 
 If you already have the project folder, open it instead. You can also use
 GitHub's **Code → Download ZIP**, extract it and open a terminal in that folder.
-A supplied `tudor-native-0.20.0.tar.gz` source archive works too. The separate
+A supplied `tudor-native-0.21.0.tar.gz` source archive works too. The separate
 service bundle alone does not contain the ready-to-run fresh-install workspace.
 
 **All remaining commands in this section run from the source folder.** Keep it
@@ -139,9 +147,9 @@ make check-service-package
 ```
 
 Continue when the builds and tests pass. This creates
-`dist/tudor-native-service-0.20.0/` for your computer's architecture and libraries.
+`dist/tudor-native-service-0.21.0/` for your computer's architecture and libraries.
 No sensor pairing or system-service switch happens during these commands.
-Upgrade-specific tests can be skipped when the old 0.19 bundle is absent.
+Upgrade-specific tests can be skipped when the archived 0.19 or 0.20 bundles are absent.
 
 ### 6. Pair once and check the encrypted connection
 
@@ -186,7 +194,7 @@ fprintd-list "$USER"
 Expect one device named **Synaptics Tudor experimental enrollment/verification
 lab**. On a fresh installation, having no enrolled fingers yet is normal.
 
-The installer places the library in `/usr/local/lib/tudor-native/0.20.0/` and
+The installer places the library in `/usr/local/lib/tudor-native/0.21.0/` and
 switches system fprintd to use it. It leaves the distribution's libfprint file
 in place. It does not edit PAM/login settings. Already-enabled fingerprint
 login clients can use this service immediately.
@@ -201,7 +209,7 @@ fprintd-enroll -f right-index-finger
 ```
 
 Keep the sensor clear initially. Place your right index finger and hold still
-for at least one second. After each `enroll-stage-passed`, lift it completely
+until the stage is accepted. After each `enroll-stage-passed`, lift it completely
 and place it again. Repeat until **`enroll-completed`**. Enrollment needs ten
 accepted scans; retry messages can mean extra placements. No Enter presses are
 needed. Use a different valid finger name if you prefer another finger.
@@ -240,7 +248,7 @@ and suspend/wake on your own system.
 ## Everyday use
 
 Keep your finger off the sensor when a scan starts, then place it firmly and
-hold still. The driver deliberately allows one second for the finger to settle.
+hold still. The 0.21 service allows 500 ms for the finger to settle.
 Lift fully between enrollment samples or retries. Press Ctrl+C to cancel a
 terminal scan, and let cleanup finish before starting another.
 
@@ -258,13 +266,13 @@ fprintd driver installation command.
 | No enrolled fingers | Enroll as your normal user, without sudo. |
 | Permission denied / authorization failure | Use a local desktop session and respond to the normal Polkit prompt; do not enroll as root to bypass it. |
 | Checksum mismatch or unsupported profile | Stop and check the downloaded inputs or sensor details; do not bypass the check. |
-| `Different payload already installed at this version` | Keep the installed bundle. Rebuilding 0.20 can change archive hashes; do not delete installed files to force a replacement. |
-| `Interrupted or existing activation detected` | If 0.20 already works, use status. If activation failed/interrupted, use rollback below before retrying activation. |
+| `Different payload already installed at this version` | Keep the installed bundle. Rebuilding 0.21 can change archive hashes; do not delete installed files to force a replacement. |
+| `Interrupted or existing activation detected` | If 0.21 already works, use status. If activation failed/interrupted, use rollback below before retrying activation. |
 
 Status and recent logs work even after you close or move the source folder:
 
 ```sh
-sudo /usr/bin/python3 -I /usr/local/lib/tudor-native/0.20.0/service.py status
+sudo /usr/bin/python3 -I /usr/local/lib/tudor-native/0.21.0/service.py status
 sudo journalctl -u fprintd -b -n 80 --no-pager
 ```
 
@@ -277,15 +285,21 @@ private. Share only relevant terminal errors when asking for help.
 Close fingerprint apps and finish any scan, then run:
 
 ```sh
-sudo /usr/bin/python3 -I /usr/local/lib/tudor-native/0.20.0/service.py rollback
+sudo /usr/bin/python3 -I /usr/local/lib/tudor-native/0.21.0/service.py rollback
 ```
 
-After a 0.19 → 0.20 upgrade, this restores 0.19. After a fresh 0.20 installation,
+After an upgrade, this restores the previous 0.19 or 0.20 version. After a fresh installation,
 it restores the distribution's fprintd configuration. Pairing, enrollment and
 installed files are retained. Rollback does not undo a pairing change on the
 sensor or a login profile you enabled through Fingwit.
 
-To return all the way to the distribution configuration after restoring 0.19:
+To roll back further, use the controller of the version just restored. For 0.20:
+
+```sh
+sudo /usr/bin/python3 -I /usr/local/lib/tudor-native/0.20.0/service.py rollback
+```
+
+If that restores an earlier 0.19 installation, its final rollback is:
 
 ```sh
 sudo /usr/bin/python3 -I /usr/local/lib/tudor-native/0.19.0/service.py rollback

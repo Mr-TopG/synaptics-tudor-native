@@ -12,13 +12,14 @@ import stat
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('service', ROOT / 'integration/system/service.py')
 service = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
-BUNDLE = ROOT / 'dist/tudor-native-service-0.20.0/payload'
-OLD_BUNDLE = ROOT / 'dist/tudor-native-service-0.19.0/payload'
+BUNDLE = ROOT / 'dist/tudor-native-service-0.21.0/payload'
+OLD_BUNDLE = ROOT / 'dist/tudor-native-service-0.20.0/payload'
 PUBLIC = ROOT / 'upstream/synaTudor-rev/pydrv/tudor/sensor/sensor_keys/10.1-kf.tsk'
 
 
@@ -67,7 +68,7 @@ class PackageTests(unittest.TestCase):
 
     def previous_installation(self, originally_active=True):
         if not (OLD_BUNDLE / 'service.py').is_file():
-            self.skipTest('Upgrade tests require the archived 0.19 service bundle')
+            self.skipTest('Upgrade tests require the archived 0.20 service bundle')
         spec = importlib.util.spec_from_file_location('old_service', OLD_BUNDLE / 'service.py')
         old = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(old)
@@ -85,6 +86,81 @@ class PackageTests(unittest.TestCase):
         self.assertFalse(self.c.path(service.JOURNAL).exists())
         self.c.installed(service.PREVIOUS_VERSION)
         self.unchanged_private_data()
+
+    def legacy_installation(self):
+        bundle = ROOT / 'dist/tudor-native-service-0.19.0/payload'
+        if not (bundle / 'service.py').is_file():
+            self.skipTest('Requires archived 0.19 bundle')
+        spec = importlib.util.spec_from_file_location('legacy_service', bundle / 'service.py')
+        legacy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(legacy)
+        controller = legacy.Controller(self.root, self.system)
+        controller.install(bundle, PUBLIC)
+        controller.activate()
+        self.system.calls.clear()
+        return controller
+
+    def test_three_version_rollback_chain(self):
+        legacy = self.legacy_installation()
+        old, record = self.previous_installation()
+        self.c.activate()
+        self.c.rollback()
+        self.previous_preserved(record)
+        old.rollback()
+        self.assertEqual(self.c.managed_version(), '0.19.0')
+        legacy.rollback()
+        self.assertIsNone(self.c.managed_version())
+        self.unchanged_private_data()
+
+    def test_direct_legacy_upgrade(self):
+        legacy = self.legacy_installation()
+        self.c.activate()
+        self.c.rollback()
+        self.assertEqual(self.c.managed_version(), '0.19.0')
+        legacy.rollback()
+        self.assertIsNone(self.c.managed_version())
+
+    def test_missing_ancestor_journal_refused(self):
+        self.legacy_installation()
+        self.previous_installation()
+        self.c.path(service.OLDER_JOURNALS['0.19.0']).unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.c.activate()
+        self.assertEqual(self.system.calls, [])
+
+    def test_ancestor_changed_after_upgrade_refused(self):
+        self.legacy_installation()
+        self.previous_installation()
+        self.c.activate()
+        self.c.atomic(service.OLDER_JOURNALS['0.19.0'],
+                      b'{"version":"0.19.0","was_active":false}')
+        self.system.calls.clear()
+        with self.assertRaisesRegex(RuntimeError, 'Previous activation changed'):
+            self.c.rollback()
+        self.assertEqual(self.system.calls, [])
+
+    def test_stray_ancestor_journal_refused(self):
+        self.previous_installation()
+        self.c.atomic(service.OLDER_JOURNALS['0.19.0'],
+                      b'{"version":"0.19.0","was_active":true}')
+        with self.assertRaisesRegex(RuntimeError, 'Unexpected previous activation'):
+            self.c.activate()
+        self.assertEqual(self.system.calls, [])
+
+    def test_launch_selects_500_ms(self):
+        controller = service.Controller(Path('/'))
+        with patch.object(controller, 'preflight', return_value='/mock/fprintd'), \
+                patch.object(service.os, 'open', return_value=100), \
+                patch.object(service.fcntl, 'flock'), \
+                patch.object(service.os, 'set_inheritable'), \
+                patch.object(service.os, 'umask'), \
+                patch.object(service.resource, 'setrlimit'), \
+                patch.object(service.os, 'execve') as execute:
+            controller.launch()
+        args = execute.call_args.args
+        self.assertEqual(args[0], '/mock/fprintd')
+        self.assertEqual(args[2]['TUDOR_NATIVE_SETTLE_MS'], '500')
+        self.assertEqual(args[2]['LD_LIBRARY_PATH'], str(service.PREFIX))
 
     def test_passive_install_and_permissions(self):
         self.assertEqual(self.system.calls, [])

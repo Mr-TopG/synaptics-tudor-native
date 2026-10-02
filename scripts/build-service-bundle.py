@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = '0.20.0'
+VERSION = '0.21.0'
 
 
 def main():
@@ -65,11 +65,12 @@ No private pairing or fingerprints are bundled. Supply your existing public
 10.1-kf.tsk authority to install.py; its fixed digest is checked. Installation
 alone is passive. The installed service.py activate/rollback commands manage
 only the named systemd drop-in and retain all pairing and enrollment data.
-Version 0.20 supports upgrading the known 0.19 installation. Its separate
-activation journal retains the previous drop-in and checks the unchanged 0.19
-activation record. Run the 0.20 controller's rollback to restore 0.19; the 0.19
-controller can then restore the distribution service. Interrupted upgrades can
-be recovered with the 0.20 rollback command. Keep both installed directories.
+Version 0.21 uses shared probe preprocessing, up to four comparison workers,
+and 500 ms contact settling in the system service. Matcher thresholds and
+stored enrollments are unchanged. Upgrades support known 0.19 and 0.20
+controllers and validate the full rollback chain. Run the 0.21 controller's
+rollback to restore the previous version. Keep previous installed directories
+and activation journals to allow further rollback to the distribution driver.
 ''')
         shutil.copyfile(ROOT / 'LICENSE', payload / 'LICENSE')
         shutil.copyfile(ROOT / 'build/libfprint-matching-source/COPYING', payload / 'COPYING.libfprint')

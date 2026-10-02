@@ -242,6 +242,7 @@ def run(args):
                    'FP_DRIVERS_ALLOWLIST': 'tudor_native_lab',
                    'TUDOR_NATIVE_EXPERIMENTAL': '1', 'TUDOR_NATIVE_MATCHING_EXPERIMENTAL': '1',
                    'TUDOR_NATIVE_AUTOMATIC_CONTACT': '1',
+                   'TUDOR_NATIVE_SETTLE_MS': str(args.settle_ms),
                    'TUDOR_NATIVE_PAIRING_DIR': '/var/lib/tudor-native-pairing-v1',
                    'TUDOR_NATIVE_AUTHORITY_FILE': str(ROOT / 'upstream/synaTudor-rev/pydrv/tudor/sensor/sensor_keys/10.1-kf.tsk')}
             if args.simulate:
@@ -305,6 +306,7 @@ def run(args):
 
             print('Private fprintd: separate bus and template store; system login unchanged.', flush=True)
             print('Template store: ' + str(state), flush=True)
+            print(f'Experimental contact settling: {args.settle_ms} ms.', flush=True)
             GLib.timeout_add(50, poll)
             loop.run()
             if failure:
@@ -328,6 +330,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('enroll', 'verify', 'list', 'delete'))
     parser.add_argument('--finger', choices=FINGERS, default='right-index-finger')
+    parser.add_argument('--settle-ms', type=int, choices=(500,1000), default=1000,
+                        help='Automatic-contact settling interval; 500 is experimental (default: 1000)')
     parser.add_argument('--user', default=os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid()).pw_name)
     parser.add_argument('--simulate', choices=('enroll', 'same', 'different', 'retry', 'wait'), help=argparse.SUPPRESS)
     parser.add_argument('--state', type=Path, help=argparse.SUPPRESS)

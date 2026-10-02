@@ -58,7 +58,7 @@ def main():
     if original.count('driver_sources = {')!=1 or original.count('deps = [')!=1:
         parser.error('Unexpected upstream build structure')
     patched=original.replace('driver_sources = {','driver_sources = {\n'+entry)
-    patched=patched.replace('deps = [',"deps = [\n    dependency('libcrypto', version: '>= 3.0'),",1)
+    patched=patched.replace('deps = [',"deps = [\n    dependency('libcrypto', version: '>= 3.0'), dependency('threads'),",1)
     patched+='''
 # Local Tudor integration lab: not installed.
 tudor_lab = executable('tudor-capture-lab',

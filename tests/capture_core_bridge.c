@@ -6,11 +6,12 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 struct context { const char *mode; unsigned status_calls, ready_transfers;
-    int cancelled, ready, contact_phase; int64_t clock; };
+    int cancelled, ready, contact_phase; int64_t clock; unsigned settling; };
 static int is_mode(struct context *c, const char *mode) { return !strcmp(c->mode,mode); }
 
 static int transfer(void *buffer, size_t size, int writing)
@@ -72,7 +73,7 @@ static void notify(void *opaque, enum tudor_capture_event event)
         (event==TUDOR_CAPTURE_SETTLING && is_mode(c,"contact-cancel-settle"))) c->cancelled=1;
     if (event==TUDOR_CAPTURE_WAITING) {
         if (!strncmp(c->mode,"contact-",8))
-            assert(c->clock>= (is_mode(c,"contact-bounce") ? 2250 : 2000));
+            assert(c->clock==1000+c->settling+(is_mode(c,"contact-bounce") ? 250 : 0));
         c->contact_phase=4;
     }
     if (event==TUDOR_CAPTURE_WAITING && is_mode(c,"cancel-acquire")) c->cancelled=1;
@@ -109,8 +110,9 @@ static int64_t clock_ms(void *opaque)
 
 int main(int argc, char **argv)
 {
-    if (argc!=4) return 2;
-    struct context ctx={.mode=argv[1],.clock=1000};
+    if (argc!=4 && argc!=5) return 2;
+    unsigned setting=argc==5 ? (unsigned)strtoul(argv[4],NULL,10) : 0;
+    struct context ctx={.mode=argv[1],.clock=1000,.settling=setting ? setting : 1000};
     ctx.cancelled=is_mode(&ctx,"cancel-before");
     struct tudor_pairing_state state;
     if (tudor_state_load(argv[2],argv[3],&state)) return 2;
@@ -119,6 +121,7 @@ int main(int argc, char **argv)
     struct tudor_capture_ops ops={.exchange=exchange,.tls_status=tls_status,
         .interrupt=interrupt,.cancelled=cancelled,.prepare=prepare,.notify=notify,.monotonic_ms=clock_ms};
     ops.automatic_contact=!strncmp(ctx.mode,"contact-",8);
+    ops.settling_ms=setting;
     if (is_mode(&ctx,"invalid-callback")) ops.interrupt=NULL;
     if (is_mode(&ctx,"wrong-version")) version.product=64;
     struct tudor_capture_result result;

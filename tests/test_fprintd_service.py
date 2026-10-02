@@ -51,6 +51,9 @@ def main():
         original = files[0].read_bytes()  # Synthetic data only, never physical captures.
         assert run('list')[0]['enrolled_fingers'] == ['right-index-finger']
         assert run('verify')[0]['status'] == 'verify-match'
+        _, fast=run('verify',extra=('--settle-ms','500'))
+        assert 'Experimental contact settling: 500 ms.' in fast.stdout
+        assert 'Native timing:' in fast.stderr
         assert run('verify', 'different', code=1)[0]['status'] == 'verify-no-match'
         summary, output = run('verify', 'wait', code=130, extra=('--cancel-after', '3'))
         assert summary['status'] == 'cancelled'

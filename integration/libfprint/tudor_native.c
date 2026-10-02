@@ -32,6 +32,7 @@ struct Job { enum Operation operation; struct tudor_gray_frame image;
     guint serial;
     int decision;
     struct tudor_verification_result comparison;
+    gint64 template_us,capture_us,match_us;
 #endif
 };
 static void start(FpDevice *device, enum Operation operation);
@@ -101,14 +102,23 @@ static void work(GTask *task, gpointer source, gpointer data, GCancellable *canc
     else if (job->operation==CLOSE) ok=tudor_backend_close(self->backend,&error);
 #ifdef TUDOR_MATCHING_LAB
     else if (job->operation==VERIFY) {
+        gint64 phase=g_get_monotonic_time();
         struct tudor_verifier *v=tudor_template_import(job->template);
+        job->template_us=g_get_monotonic_time()-phase;
         ok=FALSE;
         if (!v) error=fpi_device_error_new_msg(FP_DEVICE_ERROR_DATA_INVALID,"Invalid experimental ten-scan template");
-        else if (capture_job(task,self,job,cancel,&error)) {
-            struct tudor_verification_result result;
-            if (tudor_verifier_check(v,job->image.pixels,sizeof(job->image.pixels),&result))
-                error=fpi_device_error_new(FP_DEVICE_ERROR_DATA_INVALID);
-            else { job->decision=result.decision; job->comparison=result; ok=TRUE; }
+        else {
+            phase=g_get_monotonic_time();
+            gboolean captured=capture_job(task,self,job,cancel,&error);
+            job->capture_us=g_get_monotonic_time()-phase;
+            if (captured) {
+                phase=g_get_monotonic_time();
+                struct tudor_verification_result result;
+                if (tudor_verifier_check(v,job->image.pixels,sizeof(job->image.pixels),&result))
+                    error=fpi_device_error_new(FP_DEVICE_ERROR_DATA_INVALID);
+                else { job->decision=result.decision; job->comparison=result; ok=TRUE; }
+                job->match_us=g_get_monotonic_time()-phase;
+            }
         }
         tudor_verifier_free(v);
     }
@@ -187,6 +197,8 @@ static void completed(GObject *source, GAsyncResult *result, gpointer unused)
         tudor_gray_frame_clear(&job->image);
         if (error && error->domain!=FP_DEVICE_RETRY) { fpi_device_verify_complete(device,error); return; }
         if (!error) {
+            g_printerr("Native timing: template_ms=%"G_GINT64_FORMAT" capture_ms=%"G_GINT64_FORMAT" match_ms=%"G_GINT64_FORMAT"\n",
+                job->template_us/1000,job->capture_us/1000,job->match_us/1000);
             const char *decision=job->decision==TUDOR_DECISION_CANDIDATE_MATCH ? "candidate_match" :
                 job->decision==TUDOR_DECISION_CANDIDATE_NONMATCH ? "candidate_nonmatch" : "retry";
             char score[G_ASCII_DTOSTR_BUF_SIZE];

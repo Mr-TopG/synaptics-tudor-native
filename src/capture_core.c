@@ -88,6 +88,7 @@ static int contact_wait(struct tudor_tls *tls,const struct tudor_capture_ops *op
 {
     unsigned sequence=0,pending=0,reads=0;
     int present=-1,notified_present=0;
+    const unsigned settling=ops->settling_ms ? ops->settling_ms : 1000;
     int64_t start=now_ms(ops,context),last=start,stable=-1;
     if (start<0) return TUDOR_CAPTURE_IO;
     if (ops->notify) ops->notify(context,need_clear ? TUDOR_CAPTURE_NEED_LIFT : TUDOR_CAPTURE_NEED_TOUCH);
@@ -119,13 +120,13 @@ static int contact_wait(struct tudor_tls *tls,const struct tudor_capture_ops *op
                 if (old!=1 || stable<0 || removed) stable=now;
                 if (!notified_present && ops->notify) ops->notify(context,TUDOR_CAPTURE_SETTLING);
                 notified_present=1;
-                if (!pending && now-stable>=1000) return TUDOR_CAPTURE_OK;
+                if (!pending && now-stable>=settling) return TUDOR_CAPTURE_OK;
             }
         }
         if (pending) continue;
         unsigned timeout=(unsigned)(20000-(now-start));
-        if (!need_clear && stable>=0 && now-stable<1000 && timeout>(unsigned)(1000-(now-stable)))
-            timeout=(unsigned)(1000-(now-stable));
+        if (!need_clear && stable>=0 && now-stable<settling && timeout>(unsigned)(settling-(now-stable)))
+            timeout=(unsigned)(settling-(now-stable));
         if (timeout>250) timeout=250;
         uint8_t event[8];
         int n=ops->interrupt(context,event,timeout);
@@ -150,6 +151,8 @@ int tudor_capture_run(const struct tudor_pairing_state *state,
     tudor_capture_result_clear(output);
     if (!state || !state->identity || !state->sensor || !version || !ops ||
         !ops->exchange || !ops->tls_status || !ops->interrupt || !ops->cancelled)
+        return TUDOR_CAPTURE_INVALID;
+    if (ops->settling_ms && ops->settling_ms!=500 && ops->settling_ms!=1000)
         return TUDOR_CAPTURE_INVALID;
     if (version->major!=10 || version->minor!=1 || version->product!=65 ||
         version->provision!=3 || !version->advanced_security || !version->key_flag)

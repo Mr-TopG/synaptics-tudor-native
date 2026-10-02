@@ -2,6 +2,7 @@
 #include "image_score.h"
 #include <math.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define W TUDOR_IMAGE_WIDTH
@@ -9,6 +10,12 @@
 #define N TUDOR_IMAGE_PIXELS
 #define RADIUS 12
 #define MIN_FRACTION 0.60
+#define ANGLES 21
+
+struct tudor_prepared_probe {
+    double rotations[ANGLES][N];
+    uint8_t masks[ANGLES][N];
+};
 
 static void clear_samples(void *data, size_t size)
 {
@@ -100,24 +107,30 @@ static int correlation(const double *a, const double *b, const uint8_t *mask,
 }
 
 static int compare(const uint8_t *first, const uint8_t *second,
+                   const struct tudor_prepared_probe *prepared,
                    struct tudor_image_score *output, int self_check)
 {
-    if (!first || !second || (!output && !self_check)) return -1;
+    if (!first || (!second && !prepared) || (!output && !self_check)) return -1;
     double a[N], b[N], r[N];
     uint8_t mask[N];
     struct tudor_image_score best={.correlation=-2,.overlap_fraction=0};
     highpass(first,a);
     if (self_check) memcpy(b,a,sizeof(b));
-    else highpass(second,b);
+    else if (!prepared) highpass(second,b);
     for (int angle=-30; angle<=30; angle+=3) {
-        rotated(b,r,mask,angle);
+        const double *rotation=r;
+        const uint8_t *valid=mask;
+        if (prepared) {
+            rotation=prepared->rotations[(angle+30)/3];
+            valid=prepared->masks[(angle+30)/3];
+        } else rotated(b,r,mask,angle);
         struct candidate { double score; int dx,dy; } top[4];
         for (int i=0; i<4; i++) top[i]=(struct candidate){.score=-2};
         /* Translations beyond 40% of either side cannot have 60% overlap.
          * Four coarse seeds per angle reduce sensitivity to repeated ridges. */
         for (int dy=-34; dy<=34; dy+=2) for (int dx=-40; dx<=40; dx+=2) {
             struct tudor_image_score current;
-            if (correlation(a,r,mask,dx,dy,2,&current)) continue;
+            if (correlation(a,rotation,valid,dx,dy,2,&current)) continue;
             for (int i=0; i<4; i++) if (current.correlation>top[i].score) {
                 for (int j=3; j>i; j--) top[j]=top[j-1];
                 top[i]=(struct candidate){current.correlation,dx,dy}; break;
@@ -127,7 +140,7 @@ static int compare(const uint8_t *first, const uint8_t *second,
             for (int dy=top[i].dy-1; dy<=top[i].dy+1; dy++)
                 for (int dx=top[i].dx-1; dx<=top[i].dx+1; dx++) {
                     struct tudor_image_score current;
-                    if (!correlation(a,r,mask,dx,dy,1,&current) && current.correlation>best.correlation) {
+                    if (!correlation(a,rotation,valid,dx,dy,1,&current) && current.correlation>best.correlation) {
                         best=current;
                         /* Bank insertion only needs the original search's
                          * success/failure, not its maximum score. A successful
@@ -150,10 +163,37 @@ done:
 int tudor_image_compare(const uint8_t *first, const uint8_t *second,
                        struct tudor_image_score *output)
 {
-    return compare(first,second,output,0);
+    return compare(first,second,NULL,output,0);
 }
 
 int tudor_image_self_check(const uint8_t *image)
 {
-    return compare(image,image,NULL,1);
+    return compare(image,image,NULL,NULL,1);
+}
+
+struct tudor_prepared_probe *tudor_image_prepare_probe(const uint8_t *image)
+{
+    if (!image) return NULL;
+    struct tudor_prepared_probe *probe=malloc(sizeof(*probe));
+    if (!probe) return NULL;
+    double filtered[N];
+    highpass(image,filtered);
+    for (int i=0;i<ANGLES;i++)
+        rotated(filtered,probe->rotations[i],probe->masks[i],-30+3*i);
+    clear_samples(filtered,sizeof(filtered));
+    return probe;
+}
+
+void tudor_image_prepared_free(struct tudor_prepared_probe *probe)
+{
+    if (!probe) return;
+    clear_samples(probe,sizeof(*probe));
+    free(probe);
+}
+
+int tudor_image_compare_prepared(const uint8_t *reference,
+                                const struct tudor_prepared_probe *probe,
+                                struct tudor_image_score *output)
+{
+    return compare(reference,NULL,probe,output,0);
 }

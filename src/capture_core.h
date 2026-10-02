@@ -28,6 +28,9 @@ struct tudor_capture_ops {
     /* Experimental sensor events: require clear sensor, fresh touch and one
      * second without a removal event before acquiring. Disabled by default. */
     int automatic_contact;
+    /* 0 keeps the 1000 ms default. Experimental explicit choices: 500 or 1000.
+     * Other values are rejected before any device operation. */
+    unsigned settling_ms;
 };
 struct tudor_capture_result {
     int session_closed;
@@ -44,7 +47,7 @@ struct tudor_capture_result {
  * handshake can contain several exchanges). Never interrupt a partial record.
  * Cleanup ignores cancellation so FRAME_FINISH/TLS close can still run.
  * automatic_contact adds two bounded event phases (20s each): confirm removal,
- * then confirm a touch stable for 1s. Explicit legacy EVENT_READ fallback is
+ * then confirm a touch stable for settling_ms (default 1s). Explicit legacy EVENT_READ fallback is
  * allowed; malformed replies, storms, cancellation and failed cleanup fail closed.
  * Interrupt waits are <=250ms with a 20s acquisition deadline. An image is
  * published only after successful cleanup, idle TLS status, and final cancel

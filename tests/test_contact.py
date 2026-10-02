@@ -27,10 +27,12 @@ def main():
             p=state/name; p.write_bytes(data); p.chmod(0o600)
         point=authority.public_key().public_numbers()
         (root/'authority.tsk').write_bytes(point.x.to_bytes(68,'little')+point.y.to_bytes(68,'little')+bytes(120))
-        for case,expected in cases.items():
+        trials=[(setting,case,expected) for setting in (0,500,1000) for case,expected in cases.items()]
+        trials += [(setting,'valid',-1) for setting in (1,499,501,1001,4294967295)]
+        for setting,case,expected in trials:
             mode='contact-'+case
             peer=CapturePeer(mode,client,sensor,cert)
-            process=subprocess.Popen([sys.argv[1],mode,str(state),str(root/'authority.tsk')],
+            process=subprocess.Popen([sys.argv[1],mode,str(state),str(root/'authority.tsk'),str(setting)],
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
             try:
                 while True:
@@ -40,15 +42,18 @@ def main():
                     response=peer.exchange(exact(process.stdout,size))
                     process.stdin.write(len(response).to_bytes(4,'big')+response); process.stdin.flush()
                 rc=process.wait(timeout=10); logs=process.stderr.read().decode()
-                assert rc==0 and f'CORE_RESULT status={expected} closed=1 bytes={17898 if expected==0 else 0}' in logs,(mode,rc,logs)
-                assert peer.closed and peer.commands[0]==0x82 and peer.commands[-1]==0x86,(mode,peer.commands)
+                assert rc==0 and f'CORE_RESULT status={expected} closed={int(expected!=-1)} bytes={17898 if expected==0 else 0}' in logs,(setting,mode,rc,logs)
+                if expected==-1:
+                    assert not peer.commands and not peer.closed
+                else:
+                    assert peer.closed and peer.commands[0]==0x82 and peer.commands[-1]==0x86,(mode,peer.commands)
                 assert (0x80 in peer.commands)==(expected==0),(mode,peer.commands)
                 if not expected: assert peer.commands[-4:]==[0x80,0x7f,0x81,0x86]
                 assert {p.name:p.read_bytes() for p in state.iterdir()}==values
             finally:
                 if process.poll() is None: process.kill(); process.wait()
                 process.stdin.close(); process.stdout.close(); process.stderr.close()
-    print(f'Automatic contact: {len(cases)} encrypted-peer scenarios passed; no physical USB or private captures used.')
+    print(f'Automatic contact: {len(trials)} scenarios passed at default/500/1000 ms, exact settling/restart timing and invalid-setting rejection; no physical USB or private captures used.')
 
 
 if __name__=='__main__': main()

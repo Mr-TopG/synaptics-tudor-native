@@ -35,10 +35,15 @@ operations. Cancellation waits for capture and encrypted-session cleanup.
 
 ## Capture and decoding
 
-Automatic contact requires a clear sensor, a fresh touch and one second of
+Automatic contact requires a clear sensor, a fresh touch and a configured interval of
 settling without a removal event. Contact polling and acquisition have bounded
 waits. Contact failures and cancellations use the same cleanup path as normal
 capture.
+
+The 0.21 service explicitly selects 500 ms; the native API accepts 500 or
+1000 ms, while zero/default selects 1000 ms. Other explicit values are rejected before any
+device command. A removal/re-touch restarts the full selected interval; changing
+the interval does not bypass the clear-sensor requirement or error cleanup.
 
 The supported frame layout has 104 by 86 signed little-endian 16-bit samples
 in column-major storage. The response includes a ten-byte header with a pixel
@@ -61,6 +66,19 @@ Version 0.20 uses an early-exit self-check when reference insertion needs only
 a usability result. Full probe comparisons retain maximum-score selection.
 Correlation loops clip to the stride-aligned intersection and skip translations
 that cannot reach the minimum overlap, preserving the remaining arithmetic order.
+
+Version 0.21 shares filtered/rotated probe data between reference
+comparisons during one operation. Up to four workers process disjoint reference
+slots; the caller joins all workers before reducing scores in reference order.
+All ten references must still be usable under the decision policy. Resource
+failures fall back to serial computation. The prepared probe is read-only during
+comparison and wiped after the join; no persistent image cache is added.
+
+Prepared comparison results are checked against a frozen 0.20 library, including
+exact floating-point bits and unchanged failure outputs. Synthetic tests also
+exercise partial/all worker-creation failure, preprocessing allocation failure
+and simultaneous readers. These checks do not establish population-level
+biometric accuracy or guarantee capture quality for every placement.
 
 Synthetic checks exercise constants, sparse inputs, periodic fields, translated
 images, noise, malformed sizes, duplicate enrollment and cleanup. Synthetic

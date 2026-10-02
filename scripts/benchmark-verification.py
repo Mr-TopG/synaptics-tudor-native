@@ -84,6 +84,13 @@ class Library:
         self.has_self_check = hasattr(self.lib, 'tudor_image_self_check')
         if self.has_self_check:
             signatures['tudor_image_self_check'] = ([image], C.c_int)
+        self.has_prepared = hasattr(self.lib, 'tudor_image_prepare_probe')
+        if self.has_prepared:
+            signatures.update({
+                'tudor_image_prepare_probe': ([image], C.c_void_p),
+                'tudor_image_prepared_free': ([C.c_void_p], None),
+                'tudor_image_compare_prepared': ([image,C.c_void_p,C.POINTER(Score)], C.c_int),
+            })
         for name, (arguments, result) in signatures.items():
             function = getattr(self.lib, name)
             function.argtypes, function.restype = arguments, result
@@ -97,6 +104,17 @@ class Library:
         quality = Quality()
         status = self.lib.tudor_image_assess(image, PIXELS, C.byref(quality))
         return {'status': status, **snapshot(quality)}
+
+    def prepared_compare(self, first, second):
+        probe=self.lib.tudor_image_prepare_probe(second)
+        if not probe:
+            raise MemoryError('Synthetic prepared probe allocation failed')
+        try:
+            result=Score(17,19)
+            status=self.lib.tudor_image_compare_prepared(first,probe,C.byref(result))
+            return {'status':status,**snapshot(result)}
+        finally:
+            self.lib.tudor_image_prepared_free(probe)
 
     def acceptance(self, image):
         bank = self.lib.tudor_image_bank_create()
@@ -168,6 +186,8 @@ def equivalent(baseline, candidate):
         old = baseline.compare(image, image)
         new = candidate.compare(image, image)
         require_equal(f'{name} full self score', old, new)
+        if candidate.has_prepared:
+            require_equal(f'{name} prepared score',old,candidate.prepared_compare(image,image))
         if candidate.has_self_check:
             status = candidate.lib.tudor_image_self_check(image)
             require_equal(f'{name} self-check return', old['status'], status)
@@ -190,6 +210,9 @@ def equivalent(baseline, candidate):
         old = baseline.compare(images[first], images[second])
         require_equal(f'{first}/{second} score', old,
                       candidate.compare(images[first], images[second]))
+        if candidate.has_prepared:
+            require_equal(f'{first}/{second} prepared score',old,
+                          candidate.prepared_compare(images[first],images[second]))
         require_equal(f'{first}/{second} input immutability', before,
                       (bytes(images[first]), bytes(images[second])))
         pair_report.append({'first': first, 'second': second, **old})
@@ -200,6 +223,7 @@ def equivalent(baseline, candidate):
     if candidate.has_self_check:
         require_equal('NULL self-check', -1, candidate.lib.tudor_image_self_check(None))
     return {'exact_float_bits': True, 'self_check_symbol_tested': candidate.has_self_check,
+            'prepared_probe_tested':candidate.has_prepared,
             'self_images': len(report), 'additional_pairs': len(pair_report),
             'images': report, 'pairs': pair_report}
 

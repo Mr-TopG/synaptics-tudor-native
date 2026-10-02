@@ -3,6 +3,7 @@
 #include "capture_core.h"
 #include "fpi-device.h"
 #include "tudor_transport.h"
+#include <string.h>
 
 struct TudorBackend {
     GUsbDevice *usb;
@@ -14,6 +15,7 @@ struct TudorBackend {
     GCancellable *open_cancel; /* Only pre-session transfers may abort immediately. */
     void (*notify)(void *,enum tudor_capture_event);
     void *notify_context;
+    unsigned settling_ms;
 };
 
 TudorBackend *tudor_backend_new(GUsbDevice *usb, const char *state, const char *authority)
@@ -128,7 +130,7 @@ static void contact_notify(void *opaque,enum tudor_capture_event event)
     TudorBackend *b=opaque;
     if (event==TUDOR_CAPTURE_NEED_LIFT) g_printerr("Automatic contact: lift your finger and keep the sensor clear.\n");
     else if (event==TUDOR_CAPTURE_NEED_TOUCH) g_printerr("Automatic contact: clear sensor confirmed; place your finger now.\n");
-    else if (event==TUDOR_CAPTURE_SETTLING) g_printerr("Automatic contact: touch detected; hold still for one second.\n");
+    else if (event==TUDOR_CAPTURE_SETTLING) g_printerr("Automatic contact: touch detected; hold still for %u milliseconds.\n",b->settling_ms);
     else if (event==TUDOR_CAPTURE_WAITING) g_printerr("Automatic contact: capturing; keep holding your finger still.\n");
     if (b->notify) b->notify(b->notify_context,event);
 }
@@ -136,6 +138,16 @@ static gboolean capture_impl(TudorBackend *b, GCancellable *cancel,
                             struct tudor_gray_frame *image,gboolean automatic,GError **error)
 {
     tudor_gray_frame_clear(image);
+    b->settling_ms=1000;
+    const char *settling=g_getenv("TUDOR_NATIVE_SETTLE_MS");
+    if (automatic && settling) {
+        if (!strcmp(settling,"500")) b->settling_ms=500;
+        else if (strcmp(settling,"1000")) {
+            g_set_error_literal(error,FP_DEVICE_ERROR,FP_DEVICE_ERROR_GENERAL,
+                "TUDOR_NATIVE_SETTLE_MS must be 500 or 1000");
+            return FALSE;
+        }
+    }
     if (!b->claimed || b->poisoned) {
         g_set_error_literal(error,FP_DEVICE_ERROR,FP_DEVICE_ERROR_PROTO,"Reopen device after incomplete capture cleanup");
         return FALSE;
@@ -143,7 +155,7 @@ static gboolean capture_impl(TudorBackend *b, GCancellable *cancel,
     b->cancel=cancel;
     const struct tudor_capture_ops ops={.exchange=exchange,.tls_status=tls_status,
         .interrupt=interrupt,.cancelled=cancelled,.automatic_contact=automatic,
-        .notify=automatic ? contact_notify : NULL};
+        .notify=automatic ? contact_notify : NULL,.settling_ms=b->settling_ms};
     struct tudor_capture_result result;
     int status=tudor_capture_run(&b->state,&b->version,&ops,b,&result);
     /* Manual mode expects settled contact supplied by the caller. Automatic

@@ -1,7 +1,7 @@
 CC ?= cc
 CPPFLAGS += -Isrc
 CFLAGS ?= -O2 -g
-CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wformat=2
+CFLAGS += -pthread -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wformat=2
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 PKG_CONFIG ?= pkg-config
@@ -86,10 +86,14 @@ build/test-image-bank: tests/test_image_bank.c src/image_bank.c src/image_bank.h
 build/test-image-self-check: tests/test_image_self_check.c src/image_score.c src/image_score.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ tests/test_image_self_check.c src/image_score.c -lm
 
-check-image-score: build/test-image-score build/test-image-bank build/test-image-self-check
+build/test-image-parallel: tests/test_image_parallel.c src/image_bank.c src/image_bank.h src/image_score.c src/image_score.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DTUDOR_BANK_TESTING $(LDFLAGS) -o $@ tests/test_image_parallel.c src/image_bank.c src/image_score.c -lm
+
+check-image-score: build/test-image-score build/test-image-bank build/test-image-self-check build/test-image-parallel
 	./build/test-image-score
 	./build/test-image-bank
 	./build/test-image-self-check
+	./build/test-image-parallel
 
 check-image-score-reference: build/libtudor-image-score.so
 	$(PYTHON) tests/test_native_image_score.py ./build/libtudor-image-score.so

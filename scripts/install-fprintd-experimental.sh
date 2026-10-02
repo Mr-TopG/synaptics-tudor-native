@@ -8,12 +8,12 @@ esac
 [ "$(id -u)" -eq 0 ] || { echo 'Run with sudo for installation and service control.' >&2; exit 1; }
 cd "$(dirname "$0")/.."
 project=$(pwd -P)
-installed=/usr/local/lib/tudor-native/0.20.0/service.py
+installed=/usr/local/lib/tudor-native/0.21.0/service.py
 case "$1" in
     --rollback) exec /usr/bin/python3 -I "$installed" rollback ;;
     --status) exec /usr/bin/python3 -I "$installed" status ;;
 esac
-bundle="$project/dist/tudor-native-service-0.20.0"
+bundle="$project/dist/tudor-native-service-0.21.0"
 [ -f "$bundle/payload/manifest.json" ] || { echo 'Build scripts/build-service-bundle.py as your normal user first.' >&2; exit 1; }
 umask 077
 ulimit -c 0
@@ -22,6 +22,6 @@ ulimit -c 0
 if [ "$1" = --activate ]; then
     echo 'Switching system fprintd to the experimental native driver. Finish any other fingerprint operation first.'
     echo 'Reuses the ten-scan fprintd enrollment. Normal system Polkit applies; no PAM files are edited.'
-    echo 'Rollback from 0.20 restores any previous managed 0.19 installation.'
+    echo 'Version 0.21 selects 500 ms settling; rollback restores the previous managed 0.19 or 0.20 installation.'
     exec /usr/bin/python3 -I "$installed" activate
 fi
