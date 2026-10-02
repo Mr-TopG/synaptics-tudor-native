@@ -1,0 +1,17 @@
+/build/
+/dist/
+/upstream/
+/reports/
+__pycache__/
+*.py[cod]
+/.agents/
+/.codex/
+# Local credentials, pairing identities, templates and fingerprint captures.
+.env
+.env.*
+*.pem
+*.tsk
+*.fprint
+*.raw
+frame-response.bin
+preview.bmp

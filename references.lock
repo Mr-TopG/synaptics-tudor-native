@@ -1,0 +1,34 @@
+{
+  "synaTudor": {
+    "url": "https://github.com/Popax21/synaTudor.git",
+    "commit": "31dfdb06107fd1c35c9f9ceae72617e98eccc43a",
+    "role": "research-only; not a build dependency"
+  },
+  "synaTudor-rev": {
+    "url": "https://github.com/Popax21/synaTudor.git",
+    "commit": "bc5a6d0e20df7a2c3edd8b40bc602801932ba40d",
+    "role": "research-only; not a build dependency"
+  },
+  "synaTudorMiS": {
+    "url": "https://github.com/vojtapl/synaTudorMiS.git",
+    "commit": "5452637c1f67fb35b859571ffd5b594f9225d08f",
+    "role": "research-only; not a build dependency"
+  },
+  "fpdrv": {
+    "url": "https://github.com/HansHoogerwerf/synaptics-00e7-fpdrv.git",
+    "commit": "53ec1fca4b73608f7f62cbd64dd9eb643041228f",
+    "role": "research-only; not a build dependency"
+  },
+  "fprintd-lab": {
+    "url": "https://gitlab.freedesktop.org/libfprint/fprintd/-/archive/v1.94.3/fprintd-v1.94.3.tar.gz",
+    "tag": "v1.94.3",
+    "sha256": "2413ec9c0be24f6852afde31baa275a2d7fe3a9ee03973af9362ddb97231aedd",
+    "role": "reference for private bus, file storage override and D-Bus API; uses installed daemon, no system installation"
+  },
+  "libfprint-lab": {
+    "url": "https://gitlab.freedesktop.org/libfprint/libfprint/-/archive/v1.94.7/libfprint-v1.94.7.tar.gz",
+    "tag": "v1.94.7",
+    "sha256": "6d2cc09c72f86865b49a911690b43e363aed7595b66e6599232a572ccce95342",
+    "role": "optional isolated capture adapter build; no system installation"
+  }
+}
